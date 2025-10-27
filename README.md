@@ -4,10 +4,9 @@
 This project watches your webcam and recognizes a few very specific **face + hand “emotes”**. When an emote is detected and sustained, it can fire an action (play a video, send a hotkey, trigger a script, etc.).  
 No training, no cloud — just landmarks + geometry.
 
-Install dependencies with:
-    python3 -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
+To use:
+Install mediapipe and opencv-python
+Run main.py
 
 -----------------------------------------------------------
 QUICK START
@@ -18,22 +17,33 @@ Run the program:
 
 The program will:
 - Open your webcam in a "Facial Gesture Detection" window
-- Wait for you to stick out your tongue AND shake your head simultaneously
+- Wait for you to do one of the 4 emotes
 - When detected for 7 frames, it will play a test video in a new window
 - Press ESC to quit
 ---
 
-## Features
+## Built-in Emotes
 
-- **Runs locally** — no uploads, no servers
-- **MediaPipe Face + Hands** landmarks in real time
-- Uses only a **small subset of stable landmark relationships**
-- Emotes defined using **simple boolean rules**, not ML
-- **Sustain + cooldown** logic → no flicker or spam
-- Fully **customizable** — edit or replace emotes easily
+1. Goblin Crying Emote
 
----
 
-## Example built-in emotes
+https://github.com/user-attachments/assets/d75ff27a-1998-4fff-9789-377ebc695059
 
-tbd
+2. Knight Mewing Emote
+   
+
+https://github.com/user-attachments/assets/128b85c5-d993-4f75-a9d7-ab35005f0233
+
+
+3. Wizard 67 Emote
+
+
+https://github.com/user-attachments/assets/e6795044-569e-4c79-bdb4-273b58e7ffc6
+
+
+   
+4. Princess Yawn Emote
+
+
+https://github.com/user-attachments/assets/9e485524-7a11-47c0-bb5a-21872d3c33a2
+
