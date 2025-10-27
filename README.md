@@ -4,10 +4,9 @@
 This project watches your webcam and recognizes a few very specific **face + hand “emotes”**. When an emote is detected and sustained, it can fire an action (play a video, send a hotkey, trigger a script, etc.).  
 No training, no cloud — just landmarks + geometry.
 
-Install dependencies with:
-- python3 -m venv venv
-- source venv/bin/activate
-- pip install -r requirements.txt
+To use:
+Install mediapipe and opencv-python
+Run main.py
 
 -----------------------------------------------------------
 QUICK START
