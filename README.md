@@ -15,7 +15,22 @@ REQUIREMENTS
 3. MediaPipe
 
 Install dependencies with:
-    pip install opencv-python mediapipe
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+
+-----------------------------------------------------------
+QUICK START
+-----------------------------------------------------------
+Run the program:
+    source venv/bin/activate  # activate virtual environment
+    python main.py
+
+The program will:
+- Open your webcam in a "Facial Gesture Detection" window
+- Wait for you to stick out your tongue AND shake your head simultaneously
+- When detected for 7 frames, it will play a test video in a new window
+- Press ESC to quit
 
 -----------------------------------------------------------
 HOW IT WORKS
