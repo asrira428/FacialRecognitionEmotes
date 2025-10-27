@@ -21,10 +21,10 @@ import queue
 import time
 
 # === Settings ===
-VIDEO_PATH_1 = "test_videos/emote1.mp4"  # Both hands near eyes
-VIDEO_PATH_2 = "test_videos/emote2.mp4"  # Finger reaches jawline
-VIDEO_PATH_3 = "test_videos/emote3.mp4"  # Hands up/down movement
-VIDEO_PATH_4 = "test_videos/emote4.mp4"  # Mouth open + hand near face
+VIDEO_PATH_1 = "emote_videos/emote1.mp4"  # Both hands near eyes
+VIDEO_PATH_2 = "emote_videos/emote2.mp4"  # Finger reaches jawline
+VIDEO_PATH_3 = "emote_videos/emote3.mp4"  # Hands up/down movement
+VIDEO_PATH_4 = "emote_videos/emote4.mp4"  # Mouth open + hand near face
 
 TRIGGER_COOLDOWN = 10
 SUSTAIN_FRAMES = 7

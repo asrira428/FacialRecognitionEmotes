@@ -6,7 +6,7 @@ import queue
 import time
 
 # === Settings ===
-VIDEO_PATH = "test_videos/orca-tongue.mp4"
+VIDEO_PATH = "emote_videos/orca-tongue.mp4"
 SHAKE_WINDOW = 15
 SHAKE_THRESHOLD = 0.03
 TONGUE_THRESHOLD = 0.01
