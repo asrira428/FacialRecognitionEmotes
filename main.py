@@ -30,7 +30,7 @@ TRIGGER_COOLDOWN = 10
 SUSTAIN_FRAMES = 7
 
 # Thresholds for gesture detection
-HAND_NEAR_EYE_DISTANCE = 0.10  # Max distance for hand near eyes (Emote 1)
+HAND_NEAR_EYE_DISTANCE = 0.2  # Max distance for hand near eyes (Emote 1)
 FINGER_NEAR_JAWLINE_DISTANCE = 0.08  # Max distance for finger near jawline (Emote 2)
 HAND_VERTICAL_MOVEMENT_THRESHOLD = 0.10  # Vertical movement threshold (Emote 3)
 HAND_NEAR_FACE_DISTANCE = 0.22  # Max distance from index fingertip to nose (Emote 4)
