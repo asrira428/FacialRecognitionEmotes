@@ -2,12 +2,13 @@
 Facial & Hand Gesture Emote Detection System
 ============================================
 
-Detects 4 custom emotes and plays corresponding videos:
+Detects 5 custom emotes and plays corresponding videos:
 
 Emote 1 - Both Hands Near Eyes: Both hands must have fingertips near eyes → emote1.mp4
 Emote 2 - Finger Reaches Jawline: Any fingertip near the jawline area → emote2.mp4
 Emote 3 - Hands Up/Down Movement: Both hands move vertically more than threshold while in camera → emote3.mp4
 Emote 4 - Mouth Open + Hand Near Face: Mouth opens + hand within threshold distance to face → emote4.mp4
+Emote 5 - Booty Shake: MediaPipe Pose detects when hands swap sides (left hand on right, right hand on left) → emote5.mp4
 
 Press ESC to exit.
 """
@@ -25,6 +26,7 @@ VIDEO_PATH_1 = "emote_videos/emote1.mp4"  # Both hands near eyes
 VIDEO_PATH_2 = "emote_videos/emote2.mp4"  # Finger reaches jawline
 VIDEO_PATH_3 = "emote_videos/emote3.mp4"  # Hands up/down movement
 VIDEO_PATH_4 = "emote_videos/emote4.mp4"  # Mouth open + hand near face
+VIDEO_PATH_5 = "emote_videos/emote5.mp4"  # Booty shake
 
 TRIGGER_COOLDOWN = 10
 SUSTAIN_FRAMES = 7
@@ -36,14 +38,23 @@ HAND_VERTICAL_MOVEMENT_THRESHOLD = 0.10  # Vertical movement threshold (Emote 3)
 HAND_NEAR_FACE_DISTANCE = 0.22  # Max distance from index fingertip to nose (Emote 4)
 MOUTH_OPEN_THRESHOLD = 0.02  # Mouth opening threshold (Emote 4)
 HAND_TRACKING_WINDOW = 10  # Frames to track for hand movement (Emote 3)
+HAND_SWAP_POSITION_THRESHOLD = 0.5  # X position threshold for hand swap detection (Emote 5)
 
 # === Setup MediaPipe ===
 mp_face = mp.solutions.face_mesh
 mp_hands = mp.solutions.hands
+mp_pose = mp.solutions.pose
 face_mesh = mp_face.FaceMesh(static_image_mode=False, max_num_faces=1, refine_landmarks=True)
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=2,  # Detect up to 2 hands
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+pose = mp_pose.Pose(
+    static_image_mode=False,
+    model_complexity=1,
+    enable_segmentation=False,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
@@ -56,8 +67,8 @@ cooldown = 0
 hand_positions = [deque(maxlen=HAND_TRACKING_WINDOW) for _ in range(2)]  # Track up to 2 hands
 
 # === Queues and flags for video frames ===
-video_queues = [queue.Queue(maxsize=1) for _ in range(4)]
-play_video_flags = [threading.Event() for _ in range(4)]
+video_queues = [queue.Queue(maxsize=1) for _ in range(5)]
+play_video_flags = [threading.Event() for _ in range(5)]
 
 # === Function to read video frames in a separate thread ===
 def video_reader(video_path, video_queue, play_flag):
@@ -86,11 +97,12 @@ def video_reader(video_path, video_queue, play_flag):
         vid.release()
         play_flag.clear()  # done playing
 
-# Start video reader threads for all 4 videos
+# Start video reader threads for all 5 videos
 threading.Thread(target=video_reader, args=(VIDEO_PATH_1, video_queues[0], play_video_flags[0]), daemon=True).start()
 threading.Thread(target=video_reader, args=(VIDEO_PATH_2, video_queues[1], play_video_flags[1]), daemon=True).start()
 threading.Thread(target=video_reader, args=(VIDEO_PATH_3, video_queues[2], play_video_flags[2]), daemon=True).start()
 threading.Thread(target=video_reader, args=(VIDEO_PATH_4, video_queues[3], play_video_flags[3]), daemon=True).start()
+threading.Thread(target=video_reader, args=(VIDEO_PATH_5, video_queues[4], play_video_flags[4]), daemon=True).start()
 
 # === Helper Functions ===
 def calculate_distance(p1, p2):
@@ -260,6 +272,35 @@ def detect_emote4_mouth_open_hand_near_face(face_landmarks, hands_result):
     # Only trigger if EXACTLY ONE hand is near face
     return hands_near_face_count == 1
 
+def detect_emote5_booty_shake(pose_result):
+    """
+    Emote 5: Booty shake (turn around)
+    Detection: Detect when user turns around by checking if hands have swapped sides
+    Left hand on right side AND right hand on left side = turned around
+    """
+    if not pose_result or not pose_result.pose_landmarks:
+        return False
+    
+    pose_landmarks = pose_result.pose_landmarks.landmark
+    
+    # Get left and right wrist positions from pose
+    # Left wrist is landmark 15, Right wrist is landmark 16
+    left_wrist = pose_landmarks[15]
+    right_wrist = pose_landmarks[16]
+    
+    # Check if hands have good visibility
+    if left_wrist.visibility < 0.5 or right_wrist.visibility < 0.5:
+        return False
+    
+    # Check if hands are in normal positions (indicating turn around)
+    # Camera is mirrored, so when facing camera: left hand appears on right, right hand on left
+    # When turned around: hands appear in normal positions (left on left, right on right)
+    left_hand_on_left = left_wrist.x < HAND_SWAP_POSITION_THRESHOLD  # Left hand on left side
+    right_hand_on_right = right_wrist.x > HAND_SWAP_POSITION_THRESHOLD  # Right hand on right side
+    
+    # Both hands in normal positions = turn around detected
+    return left_hand_on_left and right_hand_on_right
+
 # === Main loop ===
 while cap.isOpened():
     ret, frame = cap.read()
@@ -275,8 +316,11 @@ while cap.isOpened():
     # Process hands
     hands_result = hands.process(frame_rgb)
     
+    # Process pose
+    pose_result = pose.process(frame_rgb)
+    
     gesture_detected = False
-    detected_emote = 0  # 0 = none, 1-4 = emote number
+    detected_emote = 0  # 0 = none, 1-5 = emote number
 
     if face_result.multi_face_landmarks and hands_result:
         face_landmarks = face_result.multi_face_landmarks[0].landmark
@@ -304,7 +348,7 @@ while cap.isOpened():
         tongue_y = int(face_landmarks[16].y * frame.shape[0])
         cv2.circle(frame, (tongue_x, tongue_y), 6, (0, 255, 255), 2)
 
-        # Detect which emote is active
+        # Detect which emote is active (face/hand based)
         if detect_emote1_both_hands_near_eyes(face_landmarks, hands_result):
             detected_emote = 1
             gesture_detected = True
@@ -317,6 +361,11 @@ while cap.isOpened():
         elif detect_emote4_mouth_open_hand_near_face(face_landmarks, hands_result):
             detected_emote = 4
             gesture_detected = True
+    
+    # Detect emote 5 (pose based - booty shake)
+    if not gesture_detected and detect_emote5_booty_shake(pose_result):
+        detected_emote = 5
+        gesture_detected = True
 
     # Draw hand landmarks
     if hands_result.multi_hand_landmarks:
@@ -346,6 +395,29 @@ while cap.isOpened():
                 cv2.putText(frame, hand_type, (label_x, label_y), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
+    # Draw pose landmarks (for emote 5 - booty shake detection)
+    if pose_result and pose_result.pose_landmarks:
+        mp.solutions.drawing_utils.draw_landmarks(
+            frame,
+            pose_result.pose_landmarks,
+            mp_pose.POSE_CONNECTIONS,
+            mp.solutions.drawing_utils.DrawingSpec(color=(0, 255, 255), thickness=2, circle_radius=2),
+            mp.solutions.drawing_utils.DrawingSpec(color=(255, 0, 255), thickness=2)
+        )
+        
+        # Highlight key points for turn around detection (wrists)
+        landmarks = pose_result.pose_landmarks.landmark
+        
+        # Left wrist (landmark 15) - should be on right side when turned around
+        left_wrist_x = int(landmarks[15].x * frame.shape[1])
+        left_wrist_y = int(landmarks[15].y * frame.shape[0])
+        cv2.circle(frame, (left_wrist_x, left_wrist_y), 12, (255, 0, 0), 2)  # Red for left wrist
+        
+        # Right wrist (landmark 16) - should be on left side when turned around
+        right_wrist_x = int(landmarks[16].x * frame.shape[1])
+        right_wrist_y = int(landmarks[16].y * frame.shape[0])
+        cv2.circle(frame, (right_wrist_x, right_wrist_y), 12, (0, 255, 0), 2)  # Green for right wrist
+
     # Count consecutive frames
     if gesture_detected:
         gesture_frames += 1
@@ -354,10 +426,10 @@ while cap.isOpened():
 
     # Trigger video if sustained
     if gesture_frames >= SUSTAIN_FRAMES and cooldown == 0 and detected_emote > 0:
-        emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", "Hands Up/Down Movement", "Mouth Open + Hand Near Face"]
+        emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake"]
         print(f"🎭 Emote {detected_emote} ({emote_names[detected_emote]}) detected! Playing video...")
         
-        # Trigger the correct video based on detected emote (1-4 maps to indices 0-3)
+        # Trigger the correct video based on detected emote (1-5 maps to indices 0-4)
         play_video_flags[detected_emote - 1].set()
         cooldown = TRIGGER_COOLDOWN
         gesture_frames = 0
@@ -439,7 +511,7 @@ while cap.isOpened():
         
         if detected_emote > 0:
             emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", 
-                          "Hands Up/Down Movement", "Mouth Open + Hand Near Face"]
+                          "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake"]
             cv2.putText(emote_display, f"{detected_emote} DETECTED", 
                        (emote_size//2 - 180, emote_size//2 + 40), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
@@ -460,7 +532,7 @@ while cap.isOpened():
     
     # Show combined display
     cv2.imshow("Emote Detection System", combined_display)
-    
+
     if cv2.waitKey(5) & 0xFF == 27:  # ESC to quit
         break
 
