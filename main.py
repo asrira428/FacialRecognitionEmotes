@@ -8,7 +8,7 @@ Emote 1 - Both Hands Near Eyes: Both hands must have fingertips near eyes → em
 Emote 2 - Finger Reaches Jawline: Any fingertip near the jawline area → emote2.mp4
 Emote 3 - Hands Up/Down Movement: Both hands move vertically more than threshold while in camera → emote3.mp4
 Emote 4 - Mouth Open + Hand Near Face: Mouth opens + hand within threshold distance to face → emote4.mp4
-Emote 5 - Booty Shake: MediaPipe Pose detects when hands swap sides (left hand on right, right hand on left) → emote5.mp4
+Emote 5 - Booty Shake: MediaPipe Pose detects hip reversal (left hip appears right of right hip) → emote5.mp4
 
 Press ESC to exit.
 """
@@ -27,6 +27,7 @@ VIDEO_PATH_2 = "emote_videos/emote2.mp4"  # Finger reaches jawline
 VIDEO_PATH_3 = "emote_videos/emote3.mp4"  # Hands up/down movement
 VIDEO_PATH_4 = "emote_videos/emote4.mp4"  # Mouth open + hand near face
 VIDEO_PATH_5 = "emote_videos/emote5.mp4"  # Booty shake
+VIDEO_PATH_6 = "emote_videos/emote6.mp4"  # Hands descend to hips
 
 TRIGGER_COOLDOWN = 10
 SUSTAIN_FRAMES = 7
@@ -39,6 +40,7 @@ HAND_NEAR_FACE_DISTANCE = 0.22  # Max distance from index fingertip to nose (Emo
 MOUTH_OPEN_THRESHOLD = 0.02  # Mouth opening threshold (Emote 4)
 HAND_TRACKING_WINDOW = 10  # Frames to track for hand movement (Emote 3)
 HAND_SWAP_POSITION_THRESHOLD = 0.5  # X position threshold for hand swap detection (Emote 5)
+HAND_TO_HIP_DISTANCE_THRESHOLD = 0.12  # Max normalized distance from wrist to hip center (Emote 6)
 
 # === Setup MediaPipe ===
 mp_face = mp.solutions.face_mesh
@@ -67,8 +69,8 @@ cooldown = 0
 hand_positions = [deque(maxlen=HAND_TRACKING_WINDOW) for _ in range(2)]  # Track up to 2 hands
 
 # === Queues and flags for video frames ===
-video_queues = [queue.Queue(maxsize=1) for _ in range(5)]
-play_video_flags = [threading.Event() for _ in range(5)]
+video_queues = [queue.Queue(maxsize=1) for _ in range(6)]
+play_video_flags = [threading.Event() for _ in range(6)]
 
 # === Function to read video frames in a separate thread ===
 def video_reader(video_path, video_queue, play_flag):
@@ -103,32 +105,12 @@ threading.Thread(target=video_reader, args=(VIDEO_PATH_2, video_queues[1], play_
 threading.Thread(target=video_reader, args=(VIDEO_PATH_3, video_queues[2], play_video_flags[2]), daemon=True).start()
 threading.Thread(target=video_reader, args=(VIDEO_PATH_4, video_queues[3], play_video_flags[3]), daemon=True).start()
 threading.Thread(target=video_reader, args=(VIDEO_PATH_5, video_queues[4], play_video_flags[4]), daemon=True).start()
+threading.Thread(target=video_reader, args=(VIDEO_PATH_6, video_queues[5], play_video_flags[5]), daemon=True).start()
 
 # === Helper Functions ===
 def calculate_distance(p1, p2):
     """Calculate Euclidean distance between two points"""
     return ((p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2 + (p1.z - p2.z) ** 2) ** 0.5
-
-def calculate_ear(eye_landmarks):
-    """Calculate Eye Aspect Ratio (EAR) - lower values indicate closed eyes"""
-    # Vertical distance
-    vertical_1 = abs(eye_landmarks[1].y - eye_landmarks[5].y)
-    vertical_2 = abs(eye_landmarks[2].y - eye_landmarks[4].y)
-    # Horizontal distance
-    horizontal = abs(eye_landmarks[0].x - eye_landmarks[3].x)
-    # EAR formula
-    ear = (vertical_1 + vertical_2) / (2.0 * horizontal) if horizontal > 0 else 0
-    return ear
-
-def hand_near_point(hand_landmarks, point_x, point_y, point_z, distance_threshold):
-    """Check if index fingertip is near a point on face"""
-    if not hand_landmarks:
-        return False
-    index_tip = hand_landmarks.landmark[8]  # Index fingertip
-    distance = calculate_distance(index_tip, type('obj', (object,), {
-        'x': point_x, 'y': point_y, 'z': point_z
-    })())
-    return distance < distance_threshold
 
 def mouth_openness(face_landmarks):
     """Calculate mouth openness (vertical distance between lips)"""
@@ -136,13 +118,7 @@ def mouth_openness(face_landmarks):
     lower_lip = face_landmarks[14].y
     return abs(lower_lip - upper_lip)
 
-def get_brow_y(face_landmarks):
-    """Get eyebrow y position (average of inner and outer brow)"""
-    # Left eyebrow
-    left_brow = face_landmarks[107].y
-    # Right eyebrow
-    right_brow = face_landmarks[336].y
-    return (left_brow + right_brow) / 2
+# (removed unused brow helper)
 
 # === Emote Detection Functions ===
 def detect_emote1_both_hands_near_eyes(face_landmarks, hands_result):
@@ -250,7 +226,7 @@ def detect_emote4_mouth_open_hand_near_face(face_landmarks, hands_result):
     
     if not mouth_open:
         return False
-    
+
     # Check if exactly ONE hand is near face (exclude if both hands are near)
     if not hands_result.multi_hand_landmarks:
         return False
@@ -274,32 +250,68 @@ def detect_emote4_mouth_open_hand_near_face(face_landmarks, hands_result):
 
 def detect_emote5_booty_shake(pose_result):
     """
-    Emote 5: Booty shake (turn around)
-    Detection: Detect when user turns around by checking if hands have swapped sides
-    Left hand on right side AND right hand on left side = turned around
+    Emote 5: Booty shake (turn around by hip reversal)
+    Detection: Use hips (23 left, 24 right). In a mirrored front camera,
+    facing the camera typically has left_hip.x < right_hip.x. When turned
+    around, the apparent ordering reverses (left_hip.x > right_hip.x).
     """
     if not pose_result or not pose_result.pose_landmarks:
         return False
-    
-    pose_landmarks = pose_result.pose_landmarks.landmark
-    
-    # Get left and right wrist positions from pose
-    # Left wrist is landmark 15, Right wrist is landmark 16
-    left_wrist = pose_landmarks[15]
-    right_wrist = pose_landmarks[16]
-    
-    # Check if hands have good visibility
-    if left_wrist.visibility < 0.5 or right_wrist.visibility < 0.5:
+
+    lm = pose_result.pose_landmarks.landmark
+    left_hip = lm[23]
+    right_hip = lm[24]
+
+    # Require hips visible
+    if left_hip.visibility < 0.5 or right_hip.visibility < 0.5:
         return False
-    
-    # Check if hands are in normal positions (indicating turn around)
-    # Camera is mirrored, so when facing camera: left hand appears on right, right hand on left
-    # When turned around: hands appear in normal positions (left on left, right on right)
-    left_hand_on_left = left_wrist.x < HAND_SWAP_POSITION_THRESHOLD  # Left hand on left side
-    right_hand_on_right = right_wrist.x > HAND_SWAP_POSITION_THRESHOLD  # Right hand on right side
-    
-    # Both hands in normal positions = turn around detected
-    return left_hand_on_left and right_hand_on_right
+
+    # In a mirrored front camera, your forward-facing pose may appear swapped.
+    # Trigger only when turned around: left hip appears LEFT of right hip after turn.
+    hips_reversed = left_hip.x < right_hip.x
+    return hips_reversed
+
+def detect_emote6_hands_to_hips(pose_result):
+    """
+    Emote 6: Hands to hips while facing forward
+    Detection (simplified for 7-frame sustain):
+      - Facing forward (opposite of Emote 5 hip-reversal)
+      - Both wrists are within a distance threshold of the hip center
+    """
+    if not pose_result or not pose_result.pose_landmarks:
+        return False
+
+    lm = pose_result.pose_landmarks.landmark
+
+    # Hips and wrists
+    left_hip = lm[23]
+    right_hip = lm[24]
+    left_wrist = lm[15]
+    right_wrist = lm[16]
+
+    # Require visibility
+    if (left_hip.visibility < 0.5 or right_hip.visibility < 0.5 or
+        left_wrist.visibility < 0.5 or right_wrist.visibility < 0.5):
+        return False
+
+    # Facing forward in mirrored view: left hip appears to the RIGHT of right hip
+    facing_forward = left_hip.x > right_hip.x
+    if not facing_forward:
+        return False
+
+    # Hip center
+    hip_center = type('obj', (object,), {
+        'x': (left_hip.x + right_hip.x) / 2.0,
+        'y': (left_hip.y + right_hip.y) / 2.0,
+        'z': (left_hip.z + right_hip.z) / 2.0,
+    })()
+
+    # Distances from wrists to hip center
+    left_dist = calculate_distance(left_wrist, hip_center)
+    right_dist = calculate_distance(right_wrist, hip_center)
+
+    return (left_dist < HAND_TO_HIP_DISTANCE_THRESHOLD and
+            right_dist < HAND_TO_HIP_DISTANCE_THRESHOLD)
 
 # === Main loop ===
 while cap.isOpened():
@@ -362,9 +374,13 @@ while cap.isOpened():
             detected_emote = 4
             gesture_detected = True
     
-    # Detect emote 5 (pose based - booty shake)
+    # Detect emote 5 (pose based)
     if not gesture_detected and detect_emote5_booty_shake(pose_result):
         detected_emote = 5
+        gesture_detected = True
+    # Detect emote 6 (hands descend to hips)
+    if not gesture_detected and detect_emote6_hands_to_hips(pose_result):
+        detected_emote = 6
         gesture_detected = True
 
     # Draw hand landmarks
@@ -395,7 +411,7 @@ while cap.isOpened():
                 cv2.putText(frame, hand_type, (label_x, label_y), 
                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-    # Draw pose landmarks (for emote 5 - booty shake detection)
+    # Draw pose landmarks (for emote 5/6 detection)
     if pose_result and pose_result.pose_landmarks:
         mp.solutions.drawing_utils.draw_landmarks(
             frame,
@@ -405,18 +421,20 @@ while cap.isOpened():
             mp.solutions.drawing_utils.DrawingSpec(color=(255, 0, 255), thickness=2)
         )
         
-        # Highlight key points for turn around detection (wrists)
+        # Highlight hips (emote 5) and wrists (emote 6)
         landmarks = pose_result.pose_landmarks.landmark
-        
-        # Left wrist (landmark 15) - should be on right side when turned around
-        left_wrist_x = int(landmarks[15].x * frame.shape[1])
-        left_wrist_y = int(landmarks[15].y * frame.shape[0])
-        cv2.circle(frame, (left_wrist_x, left_wrist_y), 12, (255, 0, 0), 2)  # Red for left wrist
-        
-        # Right wrist (landmark 16) - should be on left side when turned around
-        right_wrist_x = int(landmarks[16].x * frame.shape[1])
-        right_wrist_y = int(landmarks[16].y * frame.shape[0])
-        cv2.circle(frame, (right_wrist_x, right_wrist_y), 12, (0, 255, 0), 2)  # Green for right wrist
+
+        # Hips
+        lhx = int(landmarks[23].x * frame.shape[1]); lhy = int(landmarks[23].y * frame.shape[0])
+        rhx = int(landmarks[24].x * frame.shape[1]); rhy = int(landmarks[24].y * frame.shape[0])
+        cv2.circle(frame, (lhx, lhy), 10, (0, 0, 255), 2)
+        cv2.circle(frame, (rhx, rhy), 10, (0, 0, 255), 2)
+
+        # Wrists
+        lwx = int(landmarks[15].x * frame.shape[1]); lwy = int(landmarks[15].y * frame.shape[0])
+        rwx = int(landmarks[16].x * frame.shape[1]); rwy = int(landmarks[16].y * frame.shape[0])
+        cv2.circle(frame, (lwx, lwy), 8, (255, 0, 0), 2)
+        cv2.circle(frame, (rwx, rwy), 8, (0, 255, 0), 2)
 
     # Count consecutive frames
     if gesture_detected:
@@ -426,10 +444,10 @@ while cap.isOpened():
 
     # Trigger video if sustained
     if gesture_frames >= SUSTAIN_FRAMES and cooldown == 0 and detected_emote > 0:
-        emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake"]
+        emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake (Hips)", "Hands to Hips"]
         print(f"🎭 Emote {detected_emote} ({emote_names[detected_emote]}) detected! Playing video...")
         
-        # Trigger the correct video based on detected emote (1-5 maps to indices 0-4)
+        # Trigger the correct video based on detected emote (1-6 maps to indices 0-5)
         play_video_flags[detected_emote - 1].set()
         cooldown = TRIGGER_COOLDOWN
         gesture_frames = 0
@@ -511,7 +529,7 @@ while cap.isOpened():
         
         if detected_emote > 0:
             emote_names = ["", "Both Hands Near Eyes", "Finger Reaches Jawline", 
-                          "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake"]
+                          "Hands Up/Down Movement", "Mouth Open + Hand Near Face", "Booty Shake (Hips)", "Hands to Hips"]
             cv2.putText(emote_display, f"{detected_emote} DETECTED", 
                        (emote_size//2 - 180, emote_size//2 + 40), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 0), 3)
